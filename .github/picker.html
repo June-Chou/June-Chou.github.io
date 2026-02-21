@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picker Pro</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .tag-enter-active, .tag-leave-active { transition: all 0.3s ease; }
+        .tag-enter-from, .tag-leave-to { opacity: 0; transform: translateY(10px); }
+        canvas { transition: transform 4s cubic-bezier(0.15, 0, 0.15, 1); }
+        .scale-in { animation: scaleIn 0.3s ease-out; }
+        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body :class="['min-h-screen pb-8 transition-colors duration-500 font-sans', themeClass]" :style="{ backgroundColor: primaryHex + '05' }">
+    <div id="app" class="max-w-md mx-auto p-4">
+        
+        <div class="flex justify-between items-center mb-4 bg-white p-3 rounded-2xl shadow-sm">
+            <select v-model="currentScene" @change="resetAndLoad" class="bg-transparent border-none text-sm font-black outline-none focus:ring-0 cursor-pointer" :style="{ color: primaryHex }">
+                <option value="food">{{ t('sceneFood') }}</option>
+                <option value="sport">{{ t('sceneSport') }}</option>
+                <option value="movie">{{ t('sceneMovie') }}</option>
+                <option value="custom">{{ t('sceneCustom') }}</option>
+            </select>
+            <button @click="toggleLang" class="text-[10px] font-black bg-gray-100 px-3 py-1 rounded-full hover:bg-gray-200 active:scale-95 transition-all">
+                {{ lang === 'zh' ? 'ENGLISH' : '中文' }}
+            </button>
+        </div>
+
+        <div class="flex items-center justify-between mb-6 px-1">
+            <div class="flex items-center gap-3">
+                <button @click="isRainbow = !isRainbow" 
+                    class="text-[9px] font-black px-2 py-1 rounded border transition-all tracking-tighter" 
+                    :style="{ borderColor: primaryHex, color: isRainbow ? '#fff' : primaryHex, backgroundColor: isRainbow ? primaryHex : 'transparent' }">
+                    {{ isRainbow ? 'RAINBOW' : 'MONO' }}
+                </button>
+                <div class="flex gap-1.5">
+                    <button v-for="(hex, name) in themes" :key="name" 
+                        @click="currentTheme = name"
+                        :class="['w-4 h-4 rounded-full transition-all', currentTheme === name ? 'ring-2 ring-offset-2 scale-110 shadow-sm' : 'hover:scale-110']"
+                        :style="{ backgroundColor: hex, ringColor: primaryHex }"></button>
+                </div>
+            </div>
+            <h1 class="text-xl font-black italic tracking-tighter opacity-20" :style="{ color: primaryHex }">PICKER.PRO</h1>
+        </div>
+
+        <section class="relative flex flex-col items-center mb-6">
+            <div class="relative w-64 h-64">
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1.5 z-10">
+                    <div class="w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[20px] drop-shadow-md" :style="{ borderTopColor: primaryHex }"></div>
+                </div>
+                <canvas ref="wheelCanvas" width="600" height="600" class="w-full h-full rounded-full border-[5px] border-white shadow-xl bg-white"></canvas>
+            </div>
+            
+            <button @click="spinWheel" :disabled="isSpinning || cuisineList.length === 0" 
+                class="mt-6 px-12 py-3 text-white font-black rounded-full shadow-lg transform active:scale-95 transition-all text-base disabled:bg-gray-200"
+                :style="{ backgroundColor: primaryHex }">
+                {{ isSpinning ? t('spinning') : t('spinBtn') }}
+            </button>
+        </section>
+
+        <div v-if="showResult" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+            <div class="bg-white rounded-[2rem] p-8 w-full max-w-xs text-center shadow-2xl scale-in border-b-8" :style="{ borderColor: primaryHex }">
+                <p class="text-gray-400 text-[10px] mb-1 font-black uppercase tracking-[0.2em]">{{ t('resultPrefix') }}</p>
+                <h2 class="text-3xl font-black mb-8 tracking-tight" :style="{ color: primaryHex }">{{ selectedCuisine }}</h2>
+                <button @click="showResult = false" class="w-full py-3 rounded-xl font-black text-white shadow-md active:scale-95 transition-transform" :style="{ backgroundColor: primaryHex }">
+                    {{ t('confirmBtn') }}
+                </button>
+            </div>
+        </div>
+
+        <section class="bg-white rounded-[1.5rem] p-5 shadow-sm border border-gray-100">
+            <div class="flex justify-between items-center mb-4 px-1">
+                <h3 class="font-black text-gray-400 text-[10px] uppercase tracking-widest">{{ t('listTitle') }} ({{ cuisineList.length }})</h3>
+                <div class="flex gap-3">
+                    <button v-if="currentScene !== 'custom'" @click="refreshPool" class="text-xs font-black italic border-b-2" :style="{ color: primaryHex, borderColor: primaryHex + '30' }">
+                        {{ t('refreshBtn') }}
+                    </button>
+                    <button @click="clearCuisines" class="text-[10px] text-gray-300 hover:text-red-400 font-bold uppercase">{{ t('clearAll') }}</button>
+                </div>
+            </div>
+
+            <div class="flex gap-2 mb-4">
+                <input v-model="newCuisine" @keyup.enter="addCuisine" type="text" :placeholder="t('placeholder')" 
+                    class="flex-1 px-4 py-2 bg-gray-50 rounded-xl focus:outline-none focus:ring-1 text-sm transition-all" :style="{ '--tw-ring-color': primaryHex }">
+                <button @click="addCuisine" class="bg-gray-900 text-white px-4 py-2 rounded-xl text-[10px] font-black active:scale-90 transition-transform uppercase">{{ t('addBtn') }}</button>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                <transition-group name="tag">
+                    <span v-for="(item, index) in cuisineList" :key="item" 
+                        class="px-3 py-1.5 rounded-lg text-[10px] flex items-center font-black border transition-all"
+                        :style="{ backgroundColor: primaryHex + '08', color: primaryHex, borderColor: primaryHex + '15' }">
+                        {{ item }}
+                        <button @click="removeCuisine(index)" class="ml-1.5 opacity-30 hover:opacity-100">✕</button>
+                    </span>
+                </transition-group>
+            </div>
+        </section>
+
+        <section class="mt-6 px-1">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-black text-gray-300 text-[9px] uppercase tracking-widest">{{ t('historyTitle') }}</h3>
+                <button v-if="history.length > 0" @click="clearHistory" class="text-[9px] text-gray-300 font-bold uppercase">{{ t('clearAll') }}</button>
+            </div>
+            <div class="space-y-1.5">
+                <div v-for="(h, i) in history" :key="i" class="flex justify-between items-center bg-white/40 p-3 rounded-xl border border-white/50 shadow-sm">
+                    <span class="text-gray-600 font-bold text-xs">{{ h.name }}</span>
+                    <span class="text-[8px] text-gray-400 font-mono italic">{{ h.time }}</span>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, watch } = Vue;
+
+        const i18n = {
+            zh: {
+                title: "决策转盘", spinBtn: "开始决定", spinning: "抽选中...",
+                resultPrefix: "最终结果", confirmBtn: "知道啦", listTitle: "候选池", addBtn: "加入",
+                clearAll: "清空", placeholder: "输入并回车...", refreshBtn: "换一批",
+                historyTitle: "决策历史", sceneFood: "吃什么", sceneSport: "练什么", sceneMovie: "看什么", sceneCustom: "自定义"
+            },
+            en: {
+                title: "PICKER PRO", spinBtn: "SPIN NOW", spinning: "PICKING...",
+                resultPrefix: "THE WINNER IS", confirmBtn: "GOT IT", listTitle: "OPTIONS", addBtn: "ADD",
+                clearAll: "CLEAR", placeholder: "Enter items...", refreshBtn: "SHUFFLE",
+                historyTitle: "HISTORY", sceneFood: "FOOD", sceneSport: "WORKOUT", sceneMovie: "MOVIES", sceneCustom: "CUSTOM"
+            }
+        };
+
+        const pool = {
+            food: { 
+                zh: ["火锅", "烧烤", "川菜", "汉堡", "寿司", "拉面", "麻辣烫", "披萨", "韩国料理", "泰国菜", "粤菜", "湘菜", "江浙菜", "西北菜", "鲁菜", "西餐", "快餐", "轻食"], 
+                en: ["Hotpot", "BBQ", "Sichuan Food", "Burger", "Sushi", "Ramen", "Malatang", "Pizza", "Korean Food", "Thai Food", "Cantonese Food", "Hunan Food", "Jiangzhe Food", "Northwest Food", "Shandong Food", "Western Food", "Fast Food", "Light Food"] 
+            },
+            sport: { 
+                zh: ["慢跑", "深蹲", "俯卧撑", "平板支撑", "波比跳", "开合跳", "引体向上", "卷腹", "箭步蹲", "高抬腿", "跳绳", "游泳", "骑行", "哑铃弯举", "臀桥", "登山跑", "臀推", "侧平板支撑", "俄罗斯转体", "卧推"], 
+                en: ["Jogging", "Squat", "Push-up", "Plank", "Burpees", "Jump Jack", "Pull-up", "Crunch", "Lunge", "High Knee Lift", "Skipping Rope", "Swimming", "Cycling", "Dumbbell Curl", "Hip Bridge", "Mountain Climbers", "Hip Thrust", "Side Plank", "Russian Twist", "Bench Press"] 
+            },
+            movie: { 
+                zh: ["喜剧", "科幻", "恐怖", "动作", "爱情", "剧情", "纪录片", "悬疑", "动画", "冒险", "战争", "犯罪", "奇幻", "惊悚", "家庭", "传记", "歌舞", "武侠", "灾难", "青春"], 
+                en: ["Comedy", "Sci-Fi", "Horror", "Action", "Romance", "Drama", "Doc", "Mystery", "Animation", "Adventure", "War", "Crime", "Fantasy", "Thriller", "Family", "Biography", "Musical", "Martial Arts", "Disaster", "Youth"] 
+            }
+        };
+
+        createApp({
+            setup() {
+                // 初始化阶段：优先尝试从 LocalStorage 读取
+                const lang = ref(localStorage.getItem('lang_v6') || 'zh');
+                const currentScene = ref(localStorage.getItem('scene_v6') || 'food');
+                const currentTheme = ref(localStorage.getItem('theme_v6') || 'indigo');
+                const isRainbow = ref(localStorage.getItem('rainbow_v6') === 'true');
+                
+                const cuisineList = ref(JSON.parse(localStorage.getItem('cuisines_v6')) || []);
+                const history = ref(JSON.parse(localStorage.getItem('history_v6')) || []);
+                
+                const newCuisine = ref('');
+                const isSpinning = ref(false);
+                const showResult = ref(false);
+                const selectedCuisine = ref('');
+                const wheelCanvas = ref(null);
+                let currentRotation = 0;
+
+                const themes = { indigo: '#4f46e5', rose: '#e11d48', emerald: '#10b981', amber: '#f59e0b', violet: '#8b5cf6', cyan: '#06b6d4', slate: '#475569', orange: '#f97316' };
+                const primaryHex = computed(() => themes[currentTheme.value]);
+                const themeClass = computed(() => `theme-${currentTheme.value}`);
+
+                const t = (key) => i18n[lang.value][key];
+
+                const drawWheel = () => {
+                    const canvas = wheelCanvas.value;
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
+                    const len = cuisineList.value.length;
+                    const radius = canvas.width / 2;
+                    const arc = Math.PI * 2 / (len || 1);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    cuisineList.value.forEach((name, i) => {
+                        ctx.save();
+                        ctx.translate(radius, radius);
+                        ctx.rotate(i * arc);
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.arc(0, 0, radius - 12, 0, arc);
+                        
+                        if (isRainbow.value) {
+                            ctx.fillStyle = `hsl(${(i * 360 / len)}, 65%, 78%)`;
+                        } else {
+                            const lightness = 88 - (i * (45 / (len || 1))); 
+                            ctx.fillStyle = `hsl(${getHSL(primaryHex.value).h}, ${getHSL(primaryHex.value).s}%, ${lightness}%)`;
+                        }
+                        
+                        ctx.fill();
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 5;
+                        ctx.stroke();
+                        ctx.rotate(arc / 2);
+                        ctx.textAlign = "right";
+                        ctx.fillStyle = (isRainbow.value || !isDark(ctx.fillStyle)) ? "#1e293b" : "#ffffff";
+                        ctx.font = "bold 24px sans-serif";
+                        ctx.fillText(name, radius - 55, 10);
+                        ctx.restore();
+                    });
+                };
+
+                function getHSL(hex) {
+                    let r = parseInt(hex.slice(1,3), 16) / 255, g = parseInt(hex.slice(3,5), 16) / 255, b = parseInt(hex.slice(5,7), 16) / 255;
+                    let max = Math.max(r, g, b), min = Math.min(r, g, b), h, s, l = (max + min) / 2;
+                    if(max == min) h = s = 0;
+                    else {
+                        let d = max - min;
+                        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                        switch(max){
+                            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                            case g: h = (b - r) / d + 2; break;
+                            case b: h = (r - g) / d + 4; break;
+                        }
+                        h /= 6;
+                    }
+                    return { h: h * 360, s: s * 100 };
+                }
+
+                function isDark(color) {
+                    if (color.startsWith('hsl')) {
+                        const l = color.match(/(\d+)%\)$/);
+                        return l && parseInt(l[1]) < 60;
+                    }
+                    return false;
+                }
+
+                const toggleLang = () => {
+                    const oldLang = lang.value;
+                    lang.value = lang.value === 'zh' ? 'en' : 'zh';
+                    cuisineList.value = cuisineList.value.map(item => {
+                        if (currentScene.value === 'custom') return item;
+                        const idx = pool[currentScene.value][oldLang].indexOf(item);
+                        return idx !== -1 ? pool[currentScene.value][lang.value][idx] : item;
+                    });
+                };
+
+                const refreshPool = () => {
+                    if (currentScene.value === 'custom') return;
+                    cuisineList.value = [...pool[currentScene.value][lang.value]].sort(() => 0.5 - Math.random()).slice(0, 8);
+                };
+
+                const spinWheel = () => {
+                    if (isSpinning.value || cuisineList.value.length === 0) return;
+                    isSpinning.value = true;
+                    const rotateDeg = Math.floor(Math.random() * 360) + 3600; 
+                    currentRotation += rotateDeg;
+                    wheelCanvas.value.style.transform = `rotate(${currentRotation}deg)`;
+                    setTimeout(() => {
+                        isSpinning.value = false;
+                        const arcDeg = 360 / cuisineList.value.length;
+                        const index = Math.floor(((360 - (currentRotation % 360) + 270) % 360) / arcDeg);
+                        selectedCuisine.value = cuisineList.value[index];
+                        showResult.value = true;
+                        const now = new Date();
+                        const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+                        history.value.unshift({ name: selectedCuisine.value, time: timeStr });
+                        if (history.value.length > 5) history.value.pop();
+                    }, 4000);
+                };
+
+                // 数据持久化：监听变化并写入缓存
+                watch(lang, (val) => localStorage.setItem('lang_v6', val));
+                watch(currentScene, (val) => localStorage.setItem('scene_v6', val));
+                watch(currentTheme, (val) => localStorage.setItem('theme_v6', val));
+                watch(isRainbow, (val) => localStorage.setItem('rainbow_v6', val));
+                watch(cuisineList, (val) => localStorage.setItem('cuisines_v6', JSON.stringify(val)), { deep: true });
+                watch(history, (val) => localStorage.setItem('history_v6', JSON.stringify(val)), { deep: true });
+                
+                // 绘制转盘的监听
+                watch([cuisineList, lang, currentTheme, isRainbow], () => drawWheel(), { deep: true });
+
+                onMounted(() => {
+                    // 如果列表为空且非自定义场景，加载默认池
+                    if (cuisineList.value.length === 0 && currentScene.value !== 'custom') {
+                        refreshPool();
+                    }
+                    drawWheel();
+                });
+
+                return {
+                    lang, currentScene, currentTheme, isRainbow, cuisineList, newCuisine, history, isSpinning, selectedCuisine, showResult,
+                    wheelCanvas, t, toggleLang, 
+                    resetAndLoad: () => {
+                        if (currentScene.value === 'custom') {
+                            cuisineList.value = [];
+                        } else {
+                            refreshPool();
+                        }
+                    },
+                    refreshPool, spinWheel, themes, primaryHex, themeClass,
+                    addCuisine: () => {
+                        const val = newCuisine.value.trim().replace(/，/g, ',');
+                        if (!val) return;
+                        val.split(',').forEach(i => { if(i.trim() && !cuisineList.value.includes(i.trim())) cuisineList.value.push(i.trim()); });
+                        newCuisine.value = '';
+                    },
+                    removeCuisine: (i) => cuisineList.value.splice(i, 1),
+                    clearCuisines: () => cuisineList.value = [],
+                    clearHistory: () => history.value = []
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
